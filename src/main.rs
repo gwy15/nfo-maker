@@ -12,7 +12,7 @@ lazy_static::lazy_static! {
         r#"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})\-(?P<streamer>.+)\-(?P<title>.+)"#
     ).unwrap();
     static ref FILE_PATTERN: Regex = Regex::new(
-        r#"(\d+)\-(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})\-(【(.+)】)?(?P<title>[^\.]+)"#
+        r#"(\d+)\-(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})\-(【(.+)】)?(?P<title>.+)\.(?P<ext>[^\.]+)"#
     ).unwrap();
 }
 
