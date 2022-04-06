@@ -9,7 +9,7 @@ use std::{env, path::PathBuf};
 
 lazy_static::lazy_static! {
     static ref DIR_PATTERN: Regex = Regex::new(
-        r#"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})\-(?P<streamer>.+)\-(?P<title>.+)"#
+        r#"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})\-(?P<streamer>.+\-)?(?P<title>.+)"#
     ).unwrap();
     static ref FILE_PATTERN: Regex = Regex::new(
         r#"(\d+)\-(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})\-(【(.+)】)?(?P<title>.+)\.(?P<ext>[^\.]+)"#
@@ -47,6 +47,8 @@ fn main() -> Result<()> {
             );
             let date = NaiveDate::from_ymd(year, month, day);
             run_dir(path, date, opt.force)?;
+        } else {
+            warn!("文件夹 {} 匹配失败", path.display());
         }
     }
 
@@ -77,7 +79,7 @@ fn run_dir(path: PathBuf, date: NaiveDate, force: bool) -> Result<()> {
         }
     }
     if count == 0 {
-        warn!("no files found in {}", path.display());
+        debug!("no files found in {}", path.display());
     }
 
     Ok(())
