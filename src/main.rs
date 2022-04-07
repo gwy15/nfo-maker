@@ -9,10 +9,15 @@ use std::{env, path::PathBuf};
 
 lazy_static::lazy_static! {
     static ref DIR_PATTERN: Regex = Regex::new(
-        r#"(?P<year>\d{4})(\.?)(?P<month>\d{2})(\.?)(?P<day>\d{2})[\-\s](?P<streamer>.+\-)?(?P<title>.+)"#
+        r#"\d{4}(\.?)\d{2}(\.?)\d{2}[\-\s]((?P<streamer>.+)[\-\s])?(?P<title>.+)"#
     ).unwrap();
     static ref FILE_PATTERN: Regex = Regex::new(
-        r#"(\d{2}(\.)?\d{2}(\.?)\d{2})[\-\s](?P<hour>\d{2})?(?P<minute>\d{2})?(?P<second>\d{2})?([\-\s]?)(【(.+)】)?(?P<title>.+)\.(?P<ext>[^\.]+)"#
+        concat!(
+            r#"^(?P<year>\d{4})\.?(?P<month>\d{2})\.?(?P<day>\d{2})"#,
+            r#"[\-\s]"#,
+            r#"((?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})[\-\s])?"#,
+            r#"(【(.+)】)?(?P<title>.+)\.(?P<ext>[^\.]+)$"#
+        )
     ).unwrap();
 }
 
@@ -39,14 +44,8 @@ fn main() -> Result<()> {
             continue;
         }
         let path_s = path.display().to_string();
-        if let Some(cap) = DIR_PATTERN.captures(&path_s) {
-            let (year, month, day) = (
-                cap.name("year").unwrap().as_str().parse()?,
-                cap.name("month").unwrap().as_str().parse()?,
-                cap.name("day").unwrap().as_str().parse()?,
-            );
-            let date = NaiveDate::from_ymd(year, month, day);
-            run_dir(path, date, opt.force)?;
+        if DIR_PATTERN.is_match(&path_s) {
+            run_dir(path, opt.force)?;
         } else {
             warn!("文件夹 {} 匹配失败", path.display());
         }
@@ -55,7 +54,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_dir(path: PathBuf, date: NaiveDate, force: bool) -> Result<()> {
+fn run_dir(path: PathBuf, force: bool) -> Result<()> {
     debug!("running {}", path.display());
     let mut count = 0;
     for f in path.read_dir()? {
@@ -68,7 +67,7 @@ fn run_dir(path: PathBuf, date: NaiveDate, force: bool) -> Result<()> {
                     || force
                     || nfo.metadata()?.modified()? <= f.metadata()?.modified()?
                 {
-                    if let Err(e) = generate(f, nfo, date) {
+                    if let Err(e) = generate(f, nfo) {
                         error!("{}", e);
                     } else {
                         count += 1;
@@ -85,17 +84,16 @@ fn run_dir(path: PathBuf, date: NaiveDate, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn generate(media: PathBuf, nfo: PathBuf, date: NaiveDate) -> Result<()> {
-    info!("generating {}", nfo.display());
-    // get time
-    let media_filename = media
-        .file_name()
-        .context("解析文件名失败")?
-        .to_str()
-        .context("文件名无法转换为 String")?;
+fn extract_filename(filename: &str) -> Result<(NaiveDateTime, &str)> {
     let cap = FILE_PATTERN
-        .captures(media_filename)
-        .with_context(|| format!("文件名 `{}` 匹配正则失败", media.display()))?;
+        .captures(filename)
+        .with_context(|| format!("文件名 `{}` 匹配正则失败", filename))?;
+    let (year, month, day) = (
+        cap.name("year").unwrap().as_str().parse()?,
+        cap.name("month").unwrap().as_str().parse()?,
+        cap.name("day").unwrap().as_str().parse()?,
+    );
+    let date = NaiveDate::from_ymd(year, month, day);
     let datetime = NaiveDateTime::new(
         date,
         NaiveTime::from_hms(
@@ -113,11 +111,25 @@ fn generate(media: PathBuf, nfo: PathBuf, date: NaiveDate) -> Result<()> {
                 .parse()?,
         ),
     );
+    let title = cap.name("title").unwrap().as_str();
+
+    Ok((datetime, title))
+}
+
+fn generate(media: PathBuf, nfo: PathBuf) -> Result<()> {
+    info!("generating {}", nfo.display());
+    // get time
+    let media_filename = media
+        .file_name()
+        .context("解析文件名失败")?
+        .to_str()
+        .context("文件名无法转换为 String")?;
+
+    let (datetime, title) = extract_filename(media_filename)?;
 
     let datetime_s = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
     let date_s = datetime.format("%Y-%m-%d").to_string();
-    let title = cap.name("title").unwrap().as_str();
-    let year = date.year();
+    let year = datetime.year();
 
     let content = format!(
         r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
@@ -139,4 +151,24 @@ fn generate(media: PathBuf, nfo: PathBuf, date: NaiveDate) -> Result<()> {
     std::fs::write(nfo, content)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn capture_filename() {
+        let (_dt, title) =
+            extract_filename("20210818-210116-【3D】看！看点儿啥呢！！！.flv").unwrap();
+        assert_eq!(title, "看！看点儿啥呢！！！");
+
+        let (_dr, title) = extract_filename("20210214 今天是情人节呢~聊天杂谈.flv").unwrap();
+        assert_eq!(title, "今天是情人节呢~聊天杂谈");
+    }
+
+    #[test]
+    fn capture_dir() {
+        assert!(DIR_PATTERN.is_match("20210116-乃琳 温柔夜谈"));
+        assert!(DIR_PATTERN.is_match("20210220 A-SOUL小剧场 第八期 燃烧吧！卡路里！"));
+    }
 }
